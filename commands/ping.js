@@ -1,12 +1,12 @@
 module.exports = {
-    name: "بينج",
+    name: "ماركو",
     aliases: ["ping", "test"],
     description: "أمر لاختبار استجابة البوت",
     execute: async (api, event, args, config) => {
         const { threadID, messageID } = event;
         
         return api.sendMessage(
-            "🏓 بونج! (Pong)\n\nالبوت يعمل بنجاح على سيرفر Render المستقر! ✅", 
+            "🏓 بونج! (Pong)\n\nالبوت بولو يعمل
             threadID, 
             messageID
         );
