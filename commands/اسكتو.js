@@ -35,7 +35,7 @@ module.exports = {
             await api.sendMessage(warningText, threadID);
 
             // 2. إرسال الصورة بشكل منفصل
-            const imagePath = path.join(__dirname, 'cache', 's.png');
+            const imagePath = path.join(__dirname, 'commands', 'cache', 's.png');
             
             if (!fs.existsSync(imagePath)) {
                 return api.sendMessage("❌ | خطأ: ملف الصورة s.png غير موجود في الكاش.", threadID);
