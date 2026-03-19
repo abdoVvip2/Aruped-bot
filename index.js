@@ -1,152 +1,125 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إدارة بوت WS3-FCA</title>
-    <style>
-        /* إضافة نمط جديد لزر إعادة التشغيل */
-        .control-buttons button { 
-            width: 48%; /* لترتيب الأزرار جنبًا إلى جنب */
-            margin-bottom: 10px;
+const { login } = require("ws3-fca");
+const fs = require("fs");
+const path = require("path");
+const express = require("express");
+const bodyParser = require("body-parser");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// إعدادات البوت
+const config = {
+    prefix: ".",
+    appStatePath: "j.json",
+    admins: ["100086772483532"], 
+    owner: "100086772483532", 
+};
+
+let botApi = null;
+let isBotRunning = false;
+
+app.use(bodyParser.json());
+
+// --- [ وظائف تحميل الأوامر ] ---
+function loadHandlers(dirPath, isCommand = true) {
+    const fullPath = path.join(__dirname, dirPath);
+    const handlers = isCommand ? { commands: new Map(), adminCommands: new Map(), blockers: [] } : [];
+
+    if (!fs.existsSync(fullPath)) {
+        fs.mkdirSync(fullPath, { recursive: true });
+        return handlers;
+    }
+
+    const files = fs.readdirSync(fullPath).filter(file => file.endsWith(".js"));
+    for (const file of files) {
+        try {
+            const handler = require(path.join(fullPath, file));
+            if (isCommand) {
+                const mapKey = dirPath === "admin" ? "adminCommands" : "commands";
+                if (handler.name && typeof handler.execute === 'function') {
+                    handlers[mapKey].set(handler.name.toLowerCase(), handler);
+                }
+            } else if (typeof handler === 'function') {
+                handlers.push(handler);
+            }
+        } catch (err) {
+            console.error(`❌ خطأ في ${file}:`, err.message);
         }
-        .control-buttons { 
-            display: flex; 
-            justify-content: space-between; 
-            margin-top: 15px; 
+    }
+    return handlers;
+}
+
+// --- [ تشغيل المستمع ] ---
+function startListener(api, handlers) {
+    api.setOptions({ listenEvents: true, selfListen: false });
+
+    api.listenMqtt(async (err, event) => {
+        if (err) return console.error("❌ خطأ في الاستماع:", err);
+
+        // تشغيل الـ Events
+        for (const handler of handlers.eventHandlers) {
+            try { await handler(api, event, config); } catch (e) {}
         }
-        .restart-btn { 
-            background-color: #ffc107; /* لون مميز لزر إعادة التشغيل */
-            color: #333; 
-        }
-        .restart-btn:hover { 
-            background-color: #e0a800; 
-        }
 
-        /* الأنماط الأصلية */
-        body { font-family: Tahoma, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
-        .container { max-width: 600px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); }
-        h1 { color: #007bff; text-align: center; }
-        input[type="email"], input[type="password"] { width: 98%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        textarea { width: 98%; min-height: 100px; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; }
-        /* تعديل نمط زر "تسجيل الدخول" ليناسب الحاوية الجديدة */
-        #loginForm button[type="submit"] { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
-        #loginForm button[type="submit"]:hover { background-color: #218838; }
-        .message { margin-top: 15px; padding: 10px; border-radius: 4px; }
-        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .divider { text-align: center; margin: 15px 0; color: #555; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>إدارة بوت WS3-FCA</h1> <p>اختر طريقة تسجيل الدخول: بيانات الاعتماد أو الكوكيز.</p>
+        if (!event.body || !event.body.startsWith(config.prefix)) return;
 
-        <form id="loginForm">
-            <label for="email">البريد الإلكتروني:</label>
-            <input type="email" id="email" name="email" placeholder="أدخل البريد الإلكتروني">
-            
-            <label for="password">كلمة السر:</label>
-            <input type="password" id="password" name="password" placeholder="أدخل كلمة السر">
-            
-            <div class="divider">--- أو ---</div>
-            
-            <label for="appState">الكوكيز (اختياري، يطغى على الإيميل/كلمة السر):</label>
-            <textarea id="appState" name="appState" placeholder='[{"key":"value","domain":".facebook.com"}, ...]'></textarea>
-            
-            <button type="submit">تسجيل الدخول وتشغيل البوت</button>
-        </form>
+        const args = event.body.slice(config.prefix.length).trim().split(/ +/);
+        const cmdName = args.shift().toLowerCase();
+        
+        // البحث عن الأمر في القوائم
+        const command = handlers.commandHandlers.commands.get(cmdName) || 
+                        handlers.commandHandlers.adminCommands.get(cmdName);
 
-        <div class="control-buttons">
-            <button id="restartBotButton" class="restart-btn" type="button">إعادة تشغيل البوت 🔄</button>
-            <button id="stopBotButton" class="restart-btn" type="button" style="background-color: #dc3545; color: white;">إيقاف البوت 🛑</button>
-        </div>
-
-        <div id="statusMessage" class="message" style="display: none;"></div>
-    </div>
-
-    <script>
-        const statusMessage = document.getElementById('statusMessage');
-
-        /**
-         * وظيفة لإرسال طلب إلى الخادم وإظهار الرسالة
-         * @param {string} endpoint - مسار API (مثل /start-bot, /restart-bot)
-         * @param {string} method - طريقة الطلب (مثل POST, GET)
-         * @param {Object} bodyData - بيانات الجسم المراد إرسالها (إذا كان هناك)
-         */
-        async function sendBotCommand(endpoint, method = 'POST', bodyData = null) {
-            statusMessage.style.display = 'block';
-            statusMessage.className = 'message';
-            statusMessage.textContent = 'جاري إرسال الطلب...';
-
+        if (command) {
+            if (handlers.commandHandlers.adminCommands.has(cmdName) && !config.admins.includes(event.senderID)) {
+                return api.sendMessage("🚫 هذا الأمر للمشرفين فقط.", event.threadID);
+            }
             try {
-                const fetchOptions = {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json' },
-                };
-                if (bodyData) {
-                    fetchOptions.body = JSON.stringify(bodyData);
-                }
-
-                const response = await fetch(endpoint, fetchOptions);
-                const result = await response.json();
-
-                if (response.ok) {
-                    statusMessage.className = 'message success';
-                    statusMessage.textContent = result.message;
-                } else {
-                    statusMessage.className = 'message error';
-                    statusMessage.textContent = result.error || 'حدث خطأ غير معروف.';
-                }
-            } catch (error) {
-                statusMessage.className = 'message error';
-                statusMessage.textContent = 'فشل الاتصال بخادم البوت.';
-                console.error('Frontend Error:', error);
+                await command.execute(api, event, args, config);
+            } catch (e) {
+                api.sendMessage("⚠️ حدث خطأ داخلي.", event.threadID);
             }
         }
+    });
+}
 
-        // 1. معالج حدث زر "تسجيل الدخول وتشغيل البوت" (تم تعديله لاستخدام وظيفة sendBotCommand)
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value.trim();
-            const appState = document.getElementById('appState').value.trim();
+// --- [ وظيفة التشغيل الرئيسية ] ---
+async function startBot() {
+    if (isBotRunning) return;
+
+    const commandHandlers = { 
+        commands: loadHandlers("commands", true).commands, 
+        adminCommands: loadHandlers("admin", true).adminCommands,
+        blockers: [] 
+    };
+    const eventHandlers = loadHandlers("events", false);
+    const handlers = { commandHandlers, eventHandlers };
+
+    try {
+        if (!fs.existsSync(config.appStatePath)) {
+            console.log("⚠️ ملف j.json غير موجود. ارفعه لكي يعمل البوت.");
+            return;
+        }
+
+        const appState = JSON.parse(fs.readFileSync(config.appStatePath, "utf8"));
+        
+        login({ appState }, (err, api) => {
+            if (err) return console.error("❌ فشل Login:", err);
             
-            let bodyData = {};
-            
-            if (appState) {
-                try {
-                    JSON.parse(appState); 
-                    bodyData = { appState: appState };
-                } catch (error) {
-                    statusMessage.style.display = 'block';
-                    statusMessage.className = 'message error';
-                    statusMessage.textContent = 'خطأ في تنسيق الكوكيز (JSON غير صالح).';
-                    return;
-                }
-            } else if (email && password) {
-                bodyData = { email: email, password: password };
-            } else {
-                statusMessage.style.display = 'block';
-                statusMessage.className = 'message error';
-                statusMessage.textContent = 'يجب إدخال البريد الإلكتروني وكلمة السر أو لصق الكوكيز.';
-                return;
-            }
-
-            await sendBotCommand('/start-bot', 'POST', bodyData);
+            botApi = api;
+            isBotRunning = true;
+            console.log("✅ [SUCCESS] البوت متصل الآن عبر ws3-fca!");
+            startListener(api, handlers);
         });
+    } catch (e) {
+        console.error("❌ خطأ في التشغيل:", e.message);
+    }
+}
 
-        // 2. معالج حدث زر "إعادة تشغيل البوت" (الجديد)
-        document.getElementById('restartBotButton').addEventListener('click', async () => {
-            // يتم إرسال طلب إعادة التشغيل إلى مسار جديد في الخادم (يفترض /restart-bot)
-            await sendBotCommand('/restart-bot', 'POST'); 
-        });
+// --- [ المسارات والتشغيل ] ---
+app.get('/', (req, res) => res.send('Bot Status: Online & Running!'));
 
-        // 3. معالج حدث زر "إيقاف البوت" (الجديد)
-        document.getElementById('stopBotButton').addEventListener('click', async () => {
-            // يتم إرسال طلب إيقاف التشغيل إلى مسار جديد في الخادم (يفترض /stop-bot)
-            await sendBotCommand('/stop-bot', 'POST'); 
-        });
-    </script>
-</body>
-</html>
+app.listen(PORT, () => {
+    console.log(`🌐 Server active on port ${PORT}`);
+    startBot();
+});
