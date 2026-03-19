@@ -1,32 +1,33 @@
-const login = require("fca-horizon-remake");
-const express = require("express");
-const fs = require("fs");
+const { execSync } = require('child_process');
+const fs = require('fs');
+const express = require('express');
 const app = express();
 
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot is Live!'));
-app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+// 1. تشغيل السيرفر فوراً لإرضاء المنصة
+app.get('/', (req, res) => res.send('جاري ترويض السيرفر...'));
+app.listen(process.env.PORT || 3000);
 
-if (!fs.existsSync('j.json')) {
-    console.error("❌ ملف j.json مفقود!");
-    process.exit(1);
-}
+console.log("🛠️ بدأت عملية الترويض القسري...");
 
 try {
+    // 2. أمر سحري لتثبيت المكتبة في مجلد العمل الحالي فوراً
+    console.log("⏳ جاري سحب المكتبة من المخازن العالمية...");
+    execSync('npm install fca-horizon-remake --no-save', { stdio: 'inherit' });
+    
+    // 3. محاولة الاستدعاء بعد التثبيت المباشر
+    const login = require("fca-horizon-remake");
+    console.log("✅ تم اصطياد المكتبة بنجاح! السيرفر خضع للأمر.");
+
+    // 4. كود البوت الخاص بك
     const appState = JSON.parse(fs.readFileSync('j.json', 'utf8'));
     login({appState}, (err, api) => {
-        if(err) return console.error("❌ خطأ تسجيل دخول:", err);
-        
-        console.log("✅ البوت يعمل الآن بنجاح على Render!");
-        
-        api.listenMqtt((err, message) => {
-            if(err || !message || !message.body) return;
-            
-            if(message.body.toLowerCase() === "فحص") {
-                api.sendMessage("الاستجابة سريعة على سيرفر Render المستقر! 🚀", message.threadID);
-            }
+        if(err) return console.error("❌ خطأ كوكيز:", err);
+        console.log("🚀 البوت انطلق الآن!");
+        api.listenMqtt((err, msg) => {
+            if(!err && msg.body === "فحص") api.sendMessage("أنا حي أرزق! 🚀", msg.threadID);
         });
     });
+
 } catch (e) {
-    console.error("❌ خطأ في قراءة ملف الكوكيز:", e.message);
+    console.log("❌ فشل الترويض: " + e.message);
 }
