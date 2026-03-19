@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+// تحديد مسار قاعدة البيانات
 const dbPath = path.join(__dirname, '..', 'cache', 'muted_chats.json');
 
 function readDB() {
@@ -21,7 +22,7 @@ module.exports = {
     async execute(api, event) {
         const { threadID, senderID, messageID } = event;
         try {
-            // --- هنا تم التصحيح ---
+            // التحقق من صلاحيات المشرف
             const threadInfo = await api.getThreadInfo(threadID);
             const adminIDs = threadInfo.adminIDs.map(e => e.id);
 
@@ -29,37 +30,32 @@ module.exports = {
                 return api.sendMessage("🚫 | هذا الأمر مخصص للمشرفين فقط.", threadID, messageID);
             }
 
-            const muteMessageText = `🎮 [ نظـــام السيطـــرة مُفعّـــل ] 🎮
+            // 1. إرسال النص التحذيري أولاً
+            const warningText = `⚠️ [ تفعيل نظام الصمت ] ⚠️\n\nيُمنع الكلام نهائياً لغير المشرفين.\nسيتم طرد أي مخالف فوراً.\n\n👇 تفاعل مع الصورة أدناه لفك الحظر.`;
+            await api.sendMessage(warningText, threadID);
 
-يا أعضاء، لقد تجاوزتم حدود الثرثرة.🔰〽️☣️🚸⚠️⭕🚸☢️〽️☣️🔰❌
-بناءً عليه، قررت الإدارة إغلاق أفواهكم مؤقتًا. 🤫〽️⭕〽️☢️〽️⚠️
-
-القاعدة بسيطة: الصمت التام.☢️⚠️⚠️☣️🚸
-
-أي همسة، حرف، أو حتى ملصق من أي عضو (غير مشرف) سيعني طرده خارج أسوار هذه المجموعة بلا عودة.
-
-هل تجرؤ على اختبار النظام؟ نحن ننتظر. 😉
-
-للمشرفين فقط: تفاعل مع هذه الرسالة لإعادة فتح أبواب الكلام.`;
-
-            const info = await api.sendMessage(muteMessageText, threadID);
-
+            // 2. إرسال الصورة بشكل منفصل
             const imagePath = path.join(__dirname, 'cache', 's.png');
-            if (fs.existsSync(imagePath)) {
-                api.sendMessage({
-                    attachment: fs.createReadStream(imagePath)
-                }, threadID);
-            } else {
-                console.log("تحذير: ملف s.png غير موجود في مجلد الكاش.");
+            
+            if (!fs.existsSync(imagePath)) {
+                return api.sendMessage("❌ | خطأ: ملف الصورة s.png غير موجود في الكاش.", threadID);
             }
 
+            const info = await api.sendMessage({
+                attachment: fs.createReadStream(imagePath)
+            }, threadID);
+
+            // 3. تخزين ID الصورة حصراً ليكون هو مفتاح فك الحظر عبر التفاعل
             const db = readDB();
-            db[threadID] = { muted: true, messageID: info.messageID };
+            db[threadID] = { 
+                muted: true, 
+                messageID: info.messageID // هذا الـ ID الخاص بالصورة فقط
+            };
             writeDB(db);
 
         } catch (error) {
-            console.error("خطأ في أمر اسكتو:", error);
-            api.sendMessage("حدث خطأ أثناء تفعيل وضع الصمت.", threadID, messageID);
+            console.error("خطأ في تنفيذ الأمر:", error);
+            api.sendMessage("حدث خطأ تقني أثناء تفعيل الوضع.", threadID, messageID);
         }
     }
 };
