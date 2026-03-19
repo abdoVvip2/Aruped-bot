@@ -1,73 +1,32 @@
 const login = require("fca-horizon-remake");
-const fs = require("fs-extra");
-const path = require("path");
 const express = require("express");
-const bodyParser = require("body-parser");
-
+const fs = require("fs");
 const app = express();
+
+// إبقاء السيرفر حياً (Render يحتاج بورت مفتوح)
 const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Bot is active!'));
+app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 
-// 1. الإعدادات العامة (قائمة الأدمن الآن مصفوفة مفتوحة)
-const config = {
-    prefix: ".",
-    appStatePath: path.join(__dirname, "j.json"),
-    // أضف أي عدد من الـ IDs هنا، افصل بينهم بفاصلة
-    admins: ["100086772483532", "ID_أدمن_ثاني", "ID_أدمن_ثالث"], 
-    owner: "100086772483532",
-    cooldown: 3000 
-};
-
-// دالة للتحقق هل المستخدم أدمن أم لا
-const isAdmin = (senderID) => config.admins.includes(String(senderID)) || senderID === config.owner;
-
-app.use(bodyParser.json());
-
-// --- نظام تحميل الملفات (Command Loader) ---
-function loadHandlers(dirName) {
-    const commands = new Map();
-    const fullPath = path.join(__dirname, dirName);
-
-    if (!fs.existsSync(fullPath)) {
-        fs.ensureDirSync(fullPath);
-        return commands;
-    }
-
-    const files = fs.readdirSync(fullPath).filter(f => f.endsWith(".js"));
-    for (const file of files) {
-        try {
-            const filePath = path.join(fullPath, file);
-            delete require.cache[require.resolve(filePath)];
-            const handler = require(filePath);
-            if (handler.name && typeof handler.execute === 'function') {
-                commands.set(handler.name.toLowerCase(), handler);
-            }
-        } catch (e) { console.error(`❌ خطأ في تحميل ${file}:`, e.message); }
-    }
-    return commands;
+// التأكد من وجود ملف الكوكيز
+if (!fs.existsSync('j.json')) {
+    console.error("❌ ملف j.json مفقود! ارفعه على GitHub.");
+    process.exit(1);
 }
 
-// --- المستمع الرئيسي ---
-function startListener(api, commands) {
-    api.setOptions({ forceLogin: true, online: true, listenEvents: true, selfListen: false });
+const appState = JSON.parse(fs.readFileSync('j.json', 'utf8'));
 
-    api.listenMqtt(async (err, event) => {
-        if (err) {
-            console.error("❌ خطأ في الاستماع، إعادة التشغيل...");
-            return process.exit(1); 
+login({appState}, (err, api) => {
+    if(err) return console.error("❌ خطأ تسجيل دخول:", err);
+    console.log("✅ البوت يعمل الآن بنجاح على Render!");
+    
+    api.listenMqtt((err, message) => {
+        if(err || !message.body) return;
+        if(message.body.toLowerCase() === "فحص") {
+            api.sendMessage("الاستجابة سريعة على سيرفر Render المستقر! 🚀", message.threadID);
         }
-
-        if (!event.body || !event.body.startsWith(config.prefix)) return;
-
-        const args = event.body.slice(config.prefix.length).trim().split(/ +/);
-        const cmdName = args.shift()?.toLowerCase();
-        const senderID = String(event.senderID);
-
-        const command = commands.get(cmdName);
-        if (!command) return;
-
-        // التحقق من صلاحية الأدمن إذا كان الأمر يتطلب ذلك
-        if (command.adminOnly && !isAdmin(senderID)) {
-            return api.sendMessage("⚠️ هذا الأمر مخصص للأدمن فقط.", event.threadID);
+    });
+});
         }
 
         try {
